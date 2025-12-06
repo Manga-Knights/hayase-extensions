@@ -7,38 +7,56 @@ export default new class NyaaSi extends AbstractSource {
   async single({ titles, episode }) {
     if (!titles?.length) return []
 
-    let data = []
+    // 1. Run all fetches in parallel for better performance
+    const promises = titles.map(async (rawTitle) => {
+      try {
+        const title = this.fixTitle(rawTitle)
+        const query = this.buildQuery(title, episode)
+        const url = `${this.base}${encodeURIComponent(query)}`
+        
+        const res = await fetch(url)
+        if (!res.ok) return [] // Handle HTTP errors gracefully
+        
+        const json = await res.json()
+        return Array.isArray(json) ? json : []
+      } catch (err) {
+        console.error('Nyaa search failed for:', rawTitle, err)
+        return []
+      }
+    })
 
-    for (int i = 0; i < titles.length; i++){
-      let title = this.fixTitle(titles[i])
-      let query = this.buildQuery(title, episode)
-      let url = `${this.base}${encodeURIComponent(query)}`
-      let res = await fetch(url)
-      data.append(await res.json())
-    }
+    // 2. Wait for all requests to finish
+    const results = await Promise.all(promises)
 
-    if (!Array.isArray(data)) return []
+    // 3. Flatten the array of arrays into a single list
+    const flatData = results.flat()
 
-    return this.map(data)
+    if (!flatData.length) return []
+
+    return this.map(flatData)
   }
 
-  fixTitle(title){
+  fixTitle(title) {
     const match1 = title.match(/(\d)(?:nd|rd|th) Season/i)
-      const match2 = title.match(/Season (\d)/i)
+    const match2 = title.match(/Season (\d)/i)
 
-      if (match2) {
-        return title.replace(/Season \d/i, `S${match2[1]}`)
-      } else if (match1) {
-        return title.replace(/(\d)(?:nd|rd|th) Season/i, `S${match1[1]}`)
-      }
+    if (match2) {
+      return title.replace(/Season \d/i, `S${match2[1]}`)
+    } else if (match1) {
+      return title.replace(/(\d)(?:nd|rd|th) Season/i, `S${match1[1]}`)
     }
+    
+    // CRITICAL FIX: Return original title if no regex matches
+    return title
+  }
 
   /** @type {import('./').SearchFunction} */
   batch = this.single
   movie = this.single
 
   buildQuery(title, episode) {
-    let query = title.replace(/[^\w\s-]/g, ' ').trim()
+    // Ensure title is a string before replacing
+    let query = (title || '').replace(/[^\w\s-]/g, ' ').trim()
     if (episode) query += ` ${episode.toString().padStart(2, '0')}`
     return query
   }
@@ -54,7 +72,7 @@ export default new class NyaaSi extends AbstractSource {
         seeders: parseInt(item.Seeders || '0'),
         leechers: parseInt(item.Leechers || '0'),
         downloads: parseInt(item.Downloads || '0'),
-        size: this.parseSize(item.Size),
+        size: this.parseSize(item.Size || ''),
         date: new Date(item.DateUploaded),
         verified: false,
         type: 'alt',
@@ -64,6 +82,8 @@ export default new class NyaaSi extends AbstractSource {
   }
 
   parseSize(sizeStr) {
+    if (!sizeStr) return 0
+    
     const match = sizeStr.match(/([\d.]+)\s*(KiB|MiB|GiB|KB|MB|GB)/i)
     if (!match) return 0
 
@@ -83,7 +103,8 @@ export default new class NyaaSi extends AbstractSource {
 
   async test() {
     try {
-      const res = await fetch(this.base + 'one piece')
+      // Encode the query to ensure the URL is valid
+      const res = await fetch(this.base + encodeURIComponent('one piece'))
       return res.ok
     } catch {
       return false
