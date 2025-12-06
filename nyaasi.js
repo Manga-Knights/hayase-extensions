@@ -4,15 +4,17 @@ export default new class NyaaSi extends AbstractSource {
   base = 'https://torrent-search-api-livid.vercel.app/api/nyaasi/'
 
   /** @type {import('./').SearchFunction} */
-  async single({ titles, episode }) {
+  async single({ titles, episode, season }) {
     if (!titles?.length) return []
 
     // 1. Run all fetches in parallel for better performance
     const promises = titles.map(async (rawTitle) => {
       try {
-        const title = this.fixTitle(rawTitle)
-        const query = this.buildQuery(title, episode)
+        const title = this.fixTitle(rawTitle, season)
+        const query = this.buildQuery(title, season, episode)
         const url = `${this.base}${encodeURIComponent(query)}`
+
+        console.log(url)
         
         const res = await fetch(url)
         if (!res.ok) return [] // Handle HTTP errors gracefully
@@ -54,10 +56,11 @@ export default new class NyaaSi extends AbstractSource {
   batch = this.single
   movie = this.single
 
-  buildQuery(title, episode) {
+  buildQuery(title, season, episode) {
     // Ensure title is a string before replacing
     let query = (title || '').replace(/[^\w\s-]/g, ' ').trim()
-    if (episode) query += ` ${episode.toString().padStart(2, '0')}`
+    if (season) query += ` S${season.toString().padStart(2, '0')}`
+    if (episode) query += `E${episode.toString().padStart(2, '0')}`
     return query
   }
 
